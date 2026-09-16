@@ -53,7 +53,7 @@ from fastapi.responses import JSONResponse
 
 APP_NAME = "Colab Mini Arcade Relay"
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.2.0"
 
 LOBBY_CODE_LENGTH = 4
 
@@ -65,6 +65,38 @@ LOBBY_CODE_CHARS = (
 MAX_PLAYERS_PER_ROOM = 2
 
 MAX_MESSAGE_SIZE = 32_000
+
+
+# ============================================================
+# LOBBY CODE SAFETY
+# ============================================================
+#
+# Exact-match server-side blacklist for public lobby IDs.
+# Codes are normalized to uppercase A-Z / 0-9 before validation.
+# ============================================================
+
+BANNED_LOBBY_CODES = {
+    # English / international explicit
+    "ANAL", "ANUS", "ARSE", "BOOB", "BUTT",
+    "CLIT", "COCK", "CUNT", "DICK", "FUCK",
+    "JIZZ", "PISS", "PORN", "RAPE", "SHIT",
+    "SLUT", "SMUT", "TITS", "TWAT", "WANK",
+
+    # Spanish / Chilean
+    "CACA", "CULO", "PENE", "PICO", "POTO",
+    "PUTA", "PUTO", "SEXO",
+
+    # Other languages
+    "PIKK", "CMAR",
+
+    # Extremism / sensitive
+    "NAZI",
+}
+
+
+def banned_code(code: str) -> bool:
+
+    return code.upper() in BANNED_LOBBY_CODES
 
 
 # ============================================================
@@ -176,7 +208,10 @@ def find_available_random_code() -> str:
 
         code = generate_random_code()
 
-        if code not in rooms:
+        if (
+            code not in rooms
+            and not banned_code(code)
+        ):
             return code
 
     raise RuntimeError(
@@ -347,6 +382,16 @@ async def create_lobby(
 
                 return
 
+            if banned_code(code):
+
+                await send_error(
+                    websocket,
+                    "CODE_NOT_ALLOWED",
+                    "That lobby code is not allowed. Please choose another.",
+                )
+
+                return
+
             if code in rooms:
 
                 await send_error(
@@ -415,6 +460,16 @@ async def join_lobby(
                 "Lobby codes must contain exactly "
                 "4 letters or numbers."
             ),
+        )
+
+        return
+
+    if banned_code(code):
+
+        await send_error(
+            websocket,
+            "CODE_NOT_ALLOWED",
+            "That lobby code is not allowed.",
         )
 
         return
